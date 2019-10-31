@@ -2,4 +2,8 @@
 *.class
 *.csv
 *.log
+*.accdb
 test/*
+
+*.doc
+*.pdf
