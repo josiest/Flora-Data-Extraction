@@ -2,6 +2,7 @@ import textract
 import os
 import re
 import json
+import argparse
 
 # Data to extract:
 #   species name | identifier | states and provinces it appears in
@@ -16,10 +17,6 @@ def load_treatment(fn, encoding='utf-8'):
     """
     path = os.path.join(os.getcwd(), fn)
     return textract.process(path, encoding=encoding).decode(encoding)
-
-fn = 'Bauhinia05bgal.pdf'
-#fn = 'Phanera05agal.pdf'
-text = load_treatment(fn)
 
 # regex patterns
 
@@ -59,8 +56,6 @@ def get_species_names(text):
     p = re.compile(r'^[ ]*1\.[ ]*('+genus+' [a-z]+)', flags=re.MULTILINE)
     return p.findall(text)
 
-names = get_species_names(text)
-
 # --- Species Introduction ---
 #
 # Relies on the assumption that a species introduction is formatted as:
@@ -92,8 +87,6 @@ def partition_text(text, names):
                        # that)
     return [text[indices[i]:indices[i+1]] for i in range(len(indices)-1)]
 
-blocks = partition_text(text, names)
-
 # --- Finding identifiers ---
 #
 # Always terminates the line
@@ -119,8 +112,6 @@ def find_id(block):
         if matches:
             return matches[-1].strip()
     return ''
-
-ids = [find_id(block) for block in blocks]
 
 # --- Finding provinces ---
 #
@@ -151,7 +142,6 @@ loc_pattern = re.compile(loc_names)
 # load the key which maps full state and province names to their abbreviations
 key_fn = 'key.json'
 key_path = os.path.join(os.getcwd(), key_fn)
-
 key = {}
 with open('key.json') as f:
     key = json.load(f)
@@ -171,8 +161,23 @@ def get_locations(block):
     locs = {key[loc] if loc in key else loc for loc in locs}
     return '"'+','.join(locs)+'"'
 
-locs = [get_locations(block) for block in blocks]
+if __name__=='__main__':
+    parser = argparse.ArgumentParser(description='Extract flora data')
+    parser.add_argument('filename', metavar='F', nargs=1,
+                        help='the treatment file to extract from')
 
-print(names)
-print(ids)
-print(locs)
+    args = parser.parse_args()
+
+    #fn = 'Bauhinia05bgal.pdf'
+    #fn = 'Phanera05agal.pdf'
+    fn = args.filename[0]
+    text = load_treatment(fn)
+
+    names = get_species_names(text)
+    blocks = partition_text(text, names)
+    ids = [find_id(block) for block in blocks]
+    locs = [get_locations(block) for block in blocks]
+
+    print(names)
+    print(ids)
+    print(locs)
