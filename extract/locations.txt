@@ -1,0 +1,67 @@
+Alabama
+Alaska
+Alberta
+Arizona
+Arkansas
+British Columbia
+California
+Colorado
+Connecticut
+District of Columbia
+Delaware
+Florida
+Georgia
+Greenland
+Idaho
+Illinois
+Indiana
+Iowa
+Kansas
+Kentucky
+Louisiana
+Maine
+Manitoba
+Massachusetts
+Maryland
+Michigan
+Minnesota
+Mississippi
+Missouri
+Montana
+New Brunswick
+North Carolina
+North Dakota
+New Hampshire
+New Jersey
+New Mexico
+Nova Scotia
+Northwest Territories
+New York
+Nebraska
+Nevada
+Newfoundland and Labrador
+Newfoundland and Labrador (Labrador)
+Newfoundland and Labrador (Newfoundland)
+Nunavut
+Ohio
+Oklahoma
+Ontario
+Oregon
+Prince Edward Island
+Pennsylvania
+Quebec
+Rhode Island
+South Carolina
+South Dakota
+Saskatchewan
+St. Pierre and Miquelon
+Tennessee
+Texas
+Utah
+Virginia
+Vermont
+West Virginia
+Washington
+Wisconsin
+Wyoming
+Yukon
