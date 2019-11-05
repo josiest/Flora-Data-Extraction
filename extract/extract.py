@@ -45,7 +45,7 @@ indices = [m.start() for m in intro_pattern.finditer(text)]
 indices.append(-1) # add the end of the text to the list so as to include the
                    # last block (ideally I'd like to cut off the info not
                    # relevant, but it's really not that important to do that)
-blocks = [text[indicies[i]:indices[i+1] for i in range(len(indices)-1)]
+blocks = [text[indices[i]:indices[i+1]] for i in range(len(indices)-1)]
 
 # --- Finding identifiers ---
 #
@@ -64,3 +64,31 @@ def find_id(block):
             return matches[-1].strip()
     return ''
 ids = [find_id(block) for block in blocks]
+
+# --- Finding provinces ---
+#
+# abbreviations and full state names are listed in geography.csv and states.csv
+# so grab each of them
+
+# I could just use a string, but I want to '|'.join(loc_names) so it'll be
+# easier to '|' the two to gether
+loc_names = []
+for fn in ('geography.csv', 'states.csv'):
+    path = os.path.join(os.getcwd(), fn)
+    with open(path) as f:
+        s = f.read()
+        # these are special regex charaters, so escape them wherever they
+        # appear
+        for r in ('.', '(', ')'):
+            s = s.replace(r, '\\'+r)
+        # I want to '|' each province name, but since they have non-alphabetic
+        # characters I need to group each name w/o captureing, hence the (?:)
+        #
+        # Also cut off the last blank line
+        loc_names.append('|'.join(['(?:'+m+')' for m in s.split('\n')[:-1]]))
+
+# add the parentheses to capture the names
+loc_names = '('+'|'.join(loc_names)+')'
+
+loc_pattern = re.compile('('+geo+'|'+states+')')
+locs = [loc_pattern.findall(block) for block in blocks]
