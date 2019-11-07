@@ -12,5 +12,5 @@ The script will then run on every pdf file in the directory and create a csv for
 
 ### Dependencies
 
-python > 3
+python > 3  
 textract
