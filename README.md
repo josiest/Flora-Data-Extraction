@@ -8,7 +8,7 @@ The easiest way to run the script is to move to a folder where the only pdf file
 
     python3 extract.py *.pdf
 
-The script will then run on every pdf file in the directory and create a csv for each pdf.
+The script will then run on every pdf file in the directory and create a csv for each pdf. `geography.txt`, `locations.txt`, and `key.json` should be in the same directory as the script. The script currently only supports being run from the same directory it's contained in.
 
 ### Dependencies
 
