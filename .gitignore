@@ -1,9 +1,5 @@
-*.jar
-*.class
 *.csv
-*.log
-*.accdb
-test/*
+test*
 
 *.doc
 *.pdf
