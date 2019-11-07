@@ -54,7 +54,6 @@ def get_species_names(text):
     genus = genus_pattern.search(text)[1]
     genus = genus[0] + genus[1:].lower()
     p = re.compile(r'^[ ]*1\.[ ]*('+genus+' [a-z]+)', flags=re.MULTILINE)
-    #return p.findall(text)
     return list(OrderedDict.fromkeys(p.findall(text)))
 
 # --- Species Introduction ---
@@ -155,6 +154,7 @@ loc_pattern = re.compile(loc_names)
 # load the key which maps full state and province names to their abbreviations
 key_fn = 'key.json'
 key_path = os.path.join(os.getcwd(), key_fn)
+
 key = {}
 with open('key.json') as f:
     key = json.load(f)
