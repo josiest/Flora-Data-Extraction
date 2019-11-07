@@ -4,6 +4,8 @@ import re
 import json
 import argparse
 
+from collections import OrderedDict
+
 # Data to extract:
 #   species name | identifier | states and provinces it appears in
 
@@ -29,10 +31,8 @@ def load_treatment(fn, encoding='utf-8'):
 # Where n and m are arbitrary naturals, not necessarily equal to each other,
 # and there are an arbitrary number of spaces before "n." and after "m."
 
-name_pattern_str = r'([A-Za-z]+[A-Za-z ]*)'
-name_pattern = re.compile(name_pattern_str, flags=re.MULTILINE)
-index_pattern = re.compile(r'^[ ]*\d+\..*\d+\.[ ]*'+name_pattern_str,
-                           flags=re.MULTILINE)
+index_pattern = re.compile(r'\d+\.[ ]*([A-Za-z]+[A-Za-z ]*)'+
+                           r'[ ]*(?:\(in part\))?$', flags=re.MULTILINE)
 
 genus_pattern = re.compile(r'^[ ]*\d+\.[ ]*([A-Z]+)', flags=re.MULTILINE)
 
@@ -54,7 +54,8 @@ def get_species_names(text):
     genus = genus_pattern.search(text)[1]
     genus = genus[0] + genus[1:].lower()
     p = re.compile(r'^[ ]*1\.[ ]*('+genus+' [a-z]+)', flags=re.MULTILINE)
-    return p.findall(text)
+    #return p.findall(text)
+    return list(OrderedDict.fromkeys(p.findall(text)))
 
 # --- Species Introduction ---
 #
@@ -66,6 +67,18 @@ def get_species_names(text):
 # and there are an arbitrary number of space characters between "n[a]*." and
 # "Species name" and an arbitrary number of space characters between
 # "Species name" and "{arbitrary text}"
+
+def get_all_names(text, names):
+    """Get all species and subspecies names, including the numbering
+
+    Parameters:
+        text - the treatment text (a string)
+        names - a list of species names
+    """
+    reg_names = '|'.join(['(?:{})'.format(s) for s in names])
+    intro_pattern = re.compile(r'^\d+[a-z]*\.[ ]*(?:'+reg_names+')',
+                               flags=re.MULTILINE)
+    return intro_pattern.findall(text)
 
 def partition_text(text, names):
     """Partition the text into blocks based on species name.
@@ -110,7 +123,7 @@ def find_id(block):
     for line in block.split('\n'):
         matches = id_pattern.findall(line)
         if matches:
-            return matches[-1].strip()
+            return matches[-1].replace(':','').strip()
     return ''
 
 # --- Finding provinces ---
@@ -159,25 +172,54 @@ def get_locations(block):
     # convert full state and province names to their abbreviations and
     # remove duplicates
     locs = {key[loc] if loc in key else loc for loc in locs}
-    return '"'+','.join(locs)+'"'
+    return '"'+', '.join(locs)+'"'
 
-if __name__=='__main__':
-    parser = argparse.ArgumentParser(description='Extract flora data')
-    parser.add_argument('filename', metavar='F', nargs=1,
-                        help='the treatment file to extract from')
+def parse_file(fn):
+    """Parse the pdf file (a genus treatment) into a csv file
 
-    args = parser.parse_args()
+    The csv file has the format
+        species name, identifier, locations it appears in
 
-    #fn = 'Bauhinia05bgal.pdf'
-    #fn = 'Phanera05agal.pdf'
-    fn = args.filename[0]
+    The csv file name has the same name as the pdf.
+
+    Parameters:
+        fn - the file name of the pdf
+    """
+    # Load the text
     text = load_treatment(fn)
 
+    # Find the names of the species, then find all occurences of the
+    # species and subspecies
     names = get_species_names(text)
+    all_names = get_all_names(text, names)
+
+    # Partition the text into blocks based on species and subspecies
     blocks = partition_text(text, names)
+
+    # Find the identifiers and the locations they appear in for each species
+    # and subspecies
     ids = [find_id(block) for block in blocks]
     locs = [get_locations(block) for block in blocks]
 
-    print(names)
-    print(ids)
-    print(locs)
+    # put each sub/species, id, and list of locations onto a line in a csv file
+    csv_iter = zip(all_names, ids, locs)
+    lines = [', '.join([name, ID, loc]) for name, ID, loc in csv_iter]
+    s = '\n'.join(lines)
+
+    # name the csv file after the pdf input
+    fn_pattern = re.compile(r'(\w+)\.pdf')
+    fn = fn_pattern.match(fn)[1]
+    with open(fn+'.csv', 'w') as f:
+        f.write(s)
+
+def main():
+    parser = argparse.ArgumentParser(description='Extract flora data')
+    parser.add_argument('filenames', metavar='F', nargs='+',
+                        help='the treatment files to extract from')
+
+    args = parser.parse_args()
+    for fn in args.filenames:
+        parse_file(fn)
+
+if __name__ == '__main__':
+    main()
