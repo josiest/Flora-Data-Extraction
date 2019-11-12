@@ -22,62 +22,146 @@ def load_treatment(fn, encoding='utf-8'):
 
 # regex patterns
 
-# --- Species name from index line ---
+# --- Genus pattern ---
 #
-# Relies on the assumption that index lines have the following format
+# Assumes that the file contains the genus name in the following format:
 #
-#  n. Arbitrary text m. Species name\n
+#   n. GENUS
 #
-# Where n and m are arbitrary naturals, not necessarily equal to each other,
-# and there are an arbitrary number of spaces before "n." and after "m."
-
-index_pattern = re.compile(r'\d+\.[ ]*([A-Za-z]+[A-Za-z ]*)'+
-                           r'[ ]*(?:\(in part\))?$', flags=re.MULTILINE)
-
+# Where n is an arbitrary natural and GENUS is all-caps. GENUS doesn't
+# necessarily end the line
 genus_pattern = re.compile(r'^[ ]*\d+\.[ ]*([A-Z]+)', flags=re.MULTILINE)
+
+def build_key_pattern(genus):
+    """Build a regex pattern for the genus key
+
+    Parameters:
+        genus - the genus of the file (a string)
+
+    The pattern has one subgroup: the genus and species name
+    """
+
+    # --- Species name from index line ---
+    #
+    # Relies on the assumption that index lines have the following format
+    #
+    #  n. Arbitrary text m. Species name\n
+    #
+    # Where n and m are arbitrary naturals, not necessarily equal to each other,
+    # and there are an arbitrary number of spaces before "n." and after "m."
+
+    key_pattern = re.compile(r'\d+\.[ ]*('+genus+' [a-z]+)'+
+                             r'(?: \(in part\))?\n', flags=re.MULTILINE)
+    return key_pattern
+
+def build_intro_pattern(genus, species=r'[a-z]+', subspecies=''):
+    """Build a regex pattern for a species introduction.
+
+    Paramters:
+        genus - of the species
+        species - specific species to look for (defaults to any)
+        subspecies - the subspecies to look for (defaults to empty string)
+
+    The regex pattern has three potenital subgroups.
+
+    1 - the genus name
+    2 - the species name
+    2 - the subspecies name (if specified)
+    """
+    # --- Species Introduction ---
+    #
+    # Relies on the assumption that a species introduction is formatted as:
+    #
+    #  n[a]*. Species name {arbitrary text} [subsp. name] {arbitrary text}
+    #
+    # Where n is an arbitrary natural and a is an arbitrary alphabetical
+    # character.
+
+    # This will match the "n[a]*" part of the inroduction
+    pattern = r'^\d+[a-z]'
+
+    # if the subspecies was specified, we know there must be alphabetical
+    # numbering on them
+    if subspecies:
+        pattern += '+'
+
+    # otherwise, we're either not sure there are subspecies or know that there's
+    # none, which is exactly what a '*' match is useful for
+    else:
+        pattern += '*'
+
+    # This will now match the 'n[a]*. Species name' part of the introduction
+    pattern += r'\.[ ]*('+genus+') ('+species+')'
+
+    # if the subspecies was specified, we know there must be some descriptor
+    # followed by 'subsp.' and the subspecies name
+    #
+    # i.e. the '{arbitrary text} [subsp. name] {arbitrary text}' part of the
+    # introduction is now matched
+    if subspecies:
+        pattern += r'.*subsp\. ('+subspecies+')'
+
+    return re.compile(pattern, flags=re.MULTILINE)
 
 def get_species_names(text):
     """Get the names of all species listed in the treatment.
 
     Parameters:
         text - the treatment to search from (a string)
+
+    Returns an empty list if it couldn't find the genus name in the text, or
+    if it couldn't find a single species.
     """
-    names = index_pattern.findall(text)
+    genus_match = genus_pattern.search(text)
+    # If the genus name couldn't be found, return an empty list
+    if not genus_match:
+        return []
+    # Else, get the first match and de-"caps-lock" it
+    genus = genus_match[1]
+    genus = genus[0]+(genus[1:].lower())
 
-    # it's possible that the text has no index - this happens when there's
-    # only one subspecies
-    if len(names) > 0:
-        return names
+    key_pattern = build_key_pattern(genus)
 
-    # if this is the case, find the genus name and search for the first
-    # occurence of the species
-    genus = genus_pattern.search(text)[1]
-    genus = genus[0] + genus[1:].lower()
-    p = re.compile(r'^[ ]*1\.[ ]*('+genus+' [a-z]+)', flags=re.MULTILINE)
-    return list(OrderedDict.fromkeys(p.findall(text)))
+    # It's possible that the pattern will find duplicates of a species in
+    # the species key. We want to remove the duplicates, but preserve the order,
+    # so use the keys of an OrderedDict as a set.
+    species = list(OrderedDict.fromkeys(key_pattern.findall(text)).keys())
 
-# --- Species Introduction ---
-#
-# Relies on the assumption that a species introduction is formatted as:
-#
-#  n[a]*. Species name {arbitrary text}
-#
-# Where n is an arbitrary natural, a is an arbitrary alphabetical character,
-# and there are an arbitrary number of space characters between "n[a]*." and
-# "Species name" and an arbitrary number of space characters between
-# "Species name" and "{arbitrary text}"
+    # it's possible that the text has no species key - this happens when
+    # there's only one species
+    if not species:
+        intro_pattern = build_intro_pattern(genus)
+        intro = intro_pattern.search(text)
 
-def get_all_names(text, names):
-    """Get all species and subspecies names, including the numbering
+        if not intro:
+            return []
 
-    Parameters:
-        text - the treatment text (a string)
-        names - a list of species names
-    """
-    reg_names = '|'.join(['(?:{})'.format(s) for s in names])
-    intro_pattern = re.compile(r'^\d+[a-z]*\.[ ]*(?:'+reg_names+')',
-                               flags=re.MULTILINE)
-    return intro_pattern.findall(text)
+        # return the first and second subgroup ("<genus> <species>")
+        return [' '.join(intro.groups())]
+
+    # otherwise, we want to find the names of all species, including subspecies
+    all_species = []
+    for fullname in species:
+        # The full name is composed as '<genus> <species>', so break it up
+        # into each and pass them on to the intro pattern
+        genus, species_name = fullname.split(' ')
+        intro_pattern = build_intro_pattern(genus, species=species_name)
+
+        # We specifically want the match objects, so get them from finditer
+        intros = list(intro_pattern.finditer(text))
+
+        # If there are subspecies, rebuild the intro patern to look
+        # specifically for subspecies
+        if len(intros) > 1:
+            intro_pattern = build_intro_pattern(genus, species=species_name,
+                                                subspecies=r'[a-z]+')
+            intros = list(intro_pattern.finditer(text))
+
+        # Then whether there were subspecies or not, append each full
+        # species name to the list of all species
+        all_species += [' '.join(match.groups()) for match in intros]
+
+    return all_species
 
 def partition_text(text, names):
     """Partition the text into blocks based on species name.
@@ -87,16 +171,35 @@ def partition_text(text, names):
 
     This will also break subspecies into their own blocks.
     """
-    reg_names = '|'.join(['(?:{})'.format(s) for s in names])
-    intro_pattern = re.compile(r'^\d+[a-z]*\.[ ]*(?:'+reg_names+')',
-                               flags=re.MULTILINE)
-    
     # Split the whole text into blocks based on the introduction to each subsp.
-    indices = [m.start() for m in intro_pattern.finditer(text)]
+    indices = []
+    for name in names:
+        # split the name up into its individual parts in order to pass once
+        # again into the intro_pattern builder
+        name_pieces = name.split(' ')
+        kwargs = {'genus': name_pieces[0], 'species': name_pieces[1]}
+
+        # If the name has a subspecies, add that to the kwargs
+        if len(name_pieces) > 2:
+            kwargs['subspecies'] = name_pieces[2]
+
+        intro_pattern = build_intro_pattern(**kwargs)
+
+        # find the first intro that matches the given species and add its
+        # index in the string
+        indices.append(intro_pattern.search(text).start())
+
     indices.append(-1) # add the end of the text to the list so as to include
                        # the last block (ideally I'd like to cut off the info
                        # not relevant, but it's really not that important to do
                        # that)
+
+    #reg_names = '|'.join(['(?:{})'.format(s) for s in names])
+    #intro_pattern = re.compile(r'^\d+[a-z]*\.[ ]*(?:'+reg_names+')',
+    #                           flags=re.MULTILINE)
+    
+    #indices = [m.start() for m in intro_pattern.finditer(text)]
+    
     return [text[indices[i]:indices[i+1]] for i in range(len(indices)-1)]
 
 # --- Finding identifiers ---
@@ -151,6 +254,10 @@ for fn in ('geography.txt', 'locations.txt'):
 loc_names = '('+'|'.join(loc_names)+')'
 loc_pattern = re.compile(loc_names)
 
+# this pattern finds the paragraph starting with "Flowering" which will contain
+# the locations that the species appears in.
+flower_pattern = re.compile(r'(Flowering [\w-]+\..*?\.\n)', re.DOTALL)
+
 # load the key which maps full state and province names to their abbreviations
 key_fn = 'key.json'
 key_path = os.path.join(os.getcwd(), key_fn)
@@ -166,8 +273,15 @@ def get_locations(block):
         block - a block of text (a string) with its scope limited to a single
                 species or subspecies
     """
-    # find all states and provinces in the block
-    locs = loc_pattern.findall(block)
+    # First find the flowering paragraph
+    s = flower_pattern.search(block)
+    if s:
+        s = s[1]
+    else:
+        return ""
+
+    # find all states and provinces in the paragraph
+    locs = loc_pattern.findall(s)
    
     # convert full state and province names to their abbreviations and
     # remove duplicates
@@ -191,10 +305,11 @@ def parse_file(fn):
     # Find the names of the species, then find all occurences of the
     # species and subspecies
     names = get_species_names(text)
-    all_names = get_all_names(text, names)
 
     # Partition the text into blocks based on species and subspecies
     blocks = partition_text(text, names)
+    message = 'There are{} as many blocks as there are names'
+    print(message.format('' if len(blocks) == len(names) else "n't"))
 
     # Find the identifiers and the locations they appear in for each species
     # and subspecies
@@ -202,7 +317,7 @@ def parse_file(fn):
     locs = [get_locations(block) for block in blocks]
 
     # put each sub/species, id, and list of locations onto a line in a csv file
-    csv_iter = zip(all_names, ids, locs)
+    csv_iter = zip(names, ids, locs)
     lines = [', '.join([name, ID, loc]) for name, ID, loc in csv_iter]
     s = '\n'.join(lines)
 
