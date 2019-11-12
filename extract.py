@@ -254,9 +254,16 @@ for fn in ('geography.txt', 'locations.txt'):
 loc_names = '('+'|'.join(loc_names)+')'
 loc_pattern = re.compile(loc_names)
 
-# this pattern finds the paragraph starting with "Flowering" which will contain
-# the locations that the species appears in.
-flower_pattern = re.compile(r'(Flowering [\w-]+\..*?\.\n)', re.DOTALL)
+# --- Location Paragraph Pattern ---
+#
+# Assumes That locations that a species appears in meets the following format:
+#
+#   0{arbitrary white space}m; {locations on an abitrary number of lines where
+#   countries are separated by ';' and states/provinces are separated by ','}.\n
+#
+# The line doesn't necessarily begin at 0, but a line does end at '.\n'
+
+loc_text_pattern = re.compile(r'0\s+?m;.*?\.\n', re.DOTALL)
 
 # load the key which maps full state and province names to their abbreviations
 key_fn = 'key.json'
@@ -274,9 +281,9 @@ def get_locations(block):
                 species or subspecies
     """
     # First find the flowering paragraph
-    s = flower_pattern.search(block)
+    s = loc_text_pattern.search(block)
     if s:
-        s = s[1]
+        s = s[0]
     else:
         return ""
 
@@ -309,7 +316,6 @@ def parse_file(fn):
     # Partition the text into blocks based on species and subspecies
     blocks = partition_text(text, names)
     message = 'There are{} as many blocks as there are names'
-    print(message.format('' if len(blocks) == len(names) else "n't"))
 
     # Find the identifiers and the locations they appear in for each species
     # and subspecies
