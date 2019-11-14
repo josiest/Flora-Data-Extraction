@@ -9,6 +9,40 @@ from collections import OrderedDict
 # Data to extract:
 #   species name | identifier | states and provinces it appears in
 
+def main():
+    # Build the command line argument parser
+    parser = argparse.ArgumentParser(description='Extract flora data')
+    parser.add_argument('filenames', metavar='F', nargs='+',
+                        help='the treatment files to extract from')
+
+    args = parser.parse_args()
+    for treatment in args.filenames:
+        # name the csv file after the pdf input
+        fn = re.match(r'(\w+)\.pdf', treatment)[1]
+        with open(fn+'.csv', 'w') as f:
+            # write all of the extracted data in this treatment to the csv
+            f.write(extract_from(treatment))
+
+def extract_from(treatment):
+    """Extract the data from the genus treatment.
+
+    Parameters:
+        treatment - a pdf file name of the genus treatment.
+
+    Returns a string with the following csv format for each line:
+
+        <Full species name>, <Identifiers>, "<Locations appeared in>"
+
+    Raises a runtime error if the genus isn't found in the treatment.
+    """
+    text = load_treatment(treatment)
+    genus = genus_in(text)
+    if not genus:
+        raise RuntimeError("No genus found")
+
+    blocks = partition(text, genus)
+    return '\n'.join(data_in(block, name) for block, name in blocks)
+
 def load_treatment(fn, encoding='utf-8'):
     """ Load the treatement using textract
 
@@ -32,6 +66,91 @@ def load_treatment(fn, encoding='utf-8'):
 # necessarily end the line
 genus_pattern = re.compile(r'^[ ]*\d+\.[ ]*([A-Z]+)', flags=re.MULTILINE)
 
+def genus_in(treatment):
+    """Return the genus name in the given treatment string.
+    
+    If the genus couldn't be found, an empty string is returned.
+    """
+    genus_match = genus_pattern.search(treatment)
+    # If the genus name couldn't be found, return an empty string
+    if not genus_match:
+        return ""
+    # Else, get the first match and de-"caps-lock" it
+    genus = genus_match[1]
+    return genus[0]+(genus[1:].lower())
+
+def partition(treatment, genus):
+    """Yield the block and name in treatment associated with each species*.
+
+    treatment - the treatment text (a string)
+    species - a list of species names
+
+    * This includes subspecies.
+    """
+    key_pattern = build_key_pattern(genus)
+    species = key_pattern.findall(treatment)
+
+    # It's possible that the pattern will find duplicates of a species in
+    # the species key. We want to remove the duplicates, but preserve the order,
+    # so use the keys of an OrderedDict as a set.
+    species = list(OrderedDict.fromkeys(species).keys())
+
+    i, j = 0, 0
+    # it's possible that the text has no species key - this happens when
+    # there's only one species
+    name = ''
+    if not species:
+        intro_pattern = build_intro_pattern(genus)
+        intro = intro_pattern.search(treatment)
+
+        if not intro:
+            raise StopIteration('No species found')
+
+        j = intro.start()
+        name = ' '.join(intro.groups())
+
+    # Split the whole text into blocks based on the introduction to each subsp.
+    for next_name in species:
+        # split the name up into its individual parts in order to pass once
+        # again into the intro_pattern builder
+        genus, species = next_name.split(' ')
+        intro_pattern = build_intro_pattern(genus, species=species)
+
+        # get a list of regex matches
+        intros = list(intro_pattern.finditer(treatment))
+
+        # if there are subspecies, go through each one
+        if len(intros) > 1:
+            # rebuild the intro pattern to specifically look for subspecies
+            intro_pattern = build_intro_pattern(genus, species=species,
+                                                subspecies=r'[a-z]+')
+
+            # go through each species introduction match
+            for intro in intro_pattern.finditer(treatment):
+                # This is technically actually yielding the previous match,
+                # but at the end we'll yield the current match
+                i = j
+                j = intro.start()
+                # Only yield the previous match when we've actually found it
+                if i > 0:
+                    yield treatment[i:j], name
+                name = ' '.join(intro.groups())
+
+        # otherwise, yield the first and only match
+        else:
+            # Once again, we're technically yielding the previous match, but
+            # we'll yield the current match at the end
+            i = j
+            j = intros[0].start()
+            # Once again, only yield the previous match after it's been found
+            if i > 0:
+                yield treatment[i:j], name
+            name = next_name
+
+    # Finally yield the "current" match (the last match). Ideally I'd like to
+    # cut off the info not relevant, but it's really not that important
+    yield treatment[j:-1], name
+
 def build_key_pattern(genus):
     """Build a regex pattern for the genus key
 
@@ -45,10 +164,10 @@ def build_key_pattern(genus):
     #
     # Relies on the assumption that index lines have the following format
     #
-    #  n. Arbitrary text m. Species name\n
+    #  n. <genus> <species> [(in part)]\n
     #
-    # Where n and m are arbitrary naturals, not necessarily equal to each other,
-    # and there are an arbitrary number of spaces before "n." and after "m."
+    # Where n is an arbitrary natural, genus is specified, species is a
+    # lowercase word and "(in part)" doesn't necessarily appear
 
     key_pattern = re.compile(r'\d+\.[ ]*('+genus+' [a-z]+)'+
                              r'(?: \(in part\))?\n', flags=re.MULTILINE)
@@ -103,104 +222,9 @@ def build_intro_pattern(genus, species=r'[a-z]+', subspecies=''):
 
     return re.compile(pattern, flags=re.MULTILINE)
 
-def get_species_names(text):
-    """Get the names of all species listed in the treatment.
-
-    Parameters:
-        text - the treatment to search from (a string)
-
-    Returns an empty list if it couldn't find the genus name in the text, or
-    if it couldn't find a single species.
-    """
-    genus_match = genus_pattern.search(text)
-    # If the genus name couldn't be found, return an empty list
-    if not genus_match:
-        return []
-    # Else, get the first match and de-"caps-lock" it
-    genus = genus_match[1]
-    genus = genus[0]+(genus[1:].lower())
-
-    key_pattern = build_key_pattern(genus)
-
-    # It's possible that the pattern will find duplicates of a species in
-    # the species key. We want to remove the duplicates, but preserve the order,
-    # so use the keys of an OrderedDict as a set.
-    species = list(OrderedDict.fromkeys(key_pattern.findall(text)).keys())
-
-    # it's possible that the text has no species key - this happens when
-    # there's only one species
-    if not species:
-        intro_pattern = build_intro_pattern(genus)
-        intro = intro_pattern.search(text)
-
-        if not intro:
-            return []
-
-        # return the first and second subgroup ("<genus> <species>")
-        return [' '.join(intro.groups())]
-
-    # otherwise, we want to find the names of all species, including subspecies
-    all_species = []
-    for fullname in species:
-        # The full name is composed as '<genus> <species>', so break it up
-        # into each and pass them on to the intro pattern
-        genus, species_name = fullname.split(' ')
-        intro_pattern = build_intro_pattern(genus, species=species_name)
-
-        # We specifically want the match objects, so get them from finditer
-        intros = list(intro_pattern.finditer(text))
-
-        # If there are subspecies, rebuild the intro patern to look
-        # specifically for subspecies
-        if len(intros) > 1:
-            intro_pattern = build_intro_pattern(genus, species=species_name,
-                                                subspecies=r'[a-z]+')
-            intros = list(intro_pattern.finditer(text))
-
-        # Then whether there were subspecies or not, append each full
-        # species name to the list of all species
-        all_species += [' '.join(match.groups()) for match in intros]
-
-    return all_species
-
-def partition_text(text, names):
-    """Partition the text into blocks based on species name.
-
-    text - the treatment text (a string)
-    names - a list of species names
-
-    This will also break subspecies into their own blocks.
-    """
-    # Split the whole text into blocks based on the introduction to each subsp.
-    indices = []
-    for name in names:
-        # split the name up into its individual parts in order to pass once
-        # again into the intro_pattern builder
-        name_pieces = name.split(' ')
-        kwargs = {'genus': name_pieces[0], 'species': name_pieces[1]}
-
-        # If the name has a subspecies, add that to the kwargs
-        if len(name_pieces) > 2:
-            kwargs['subspecies'] = name_pieces[2]
-
-        intro_pattern = build_intro_pattern(**kwargs)
-
-        # find the first intro that matches the given species and add its
-        # index in the string
-        indices.append(intro_pattern.search(text).start())
-
-    indices.append(-1) # add the end of the text to the list so as to include
-                       # the last block (ideally I'd like to cut off the info
-                       # not relevant, but it's really not that important to do
-                       # that)
-
-    #reg_names = '|'.join(['(?:{})'.format(s) for s in names])
-    #intro_pattern = re.compile(r'^\d+[a-z]*\.[ ]*(?:'+reg_names+')',
-    #                           flags=re.MULTILINE)
-    
-    #indices = [m.start() for m in intro_pattern.finditer(text)]
-    
-    return [text[indices[i]:indices[i+1]] for i in range(len(indices)-1)]
+def data_in(block, name):
+    """Extract the data from a block of a genus treatment."""
+    return ', '.join([name, ids_in(block), locs_in(block)])
 
 # --- Finding identifiers ---
 #
@@ -213,7 +237,7 @@ def partition_text(text, names):
 # It's possible that there are no identifiers
 
 id_pattern = re.compile(r'([(?:C|E|F|I|W) ]+)$')
-def find_id(block):
+def ids_in(block):
     """Finds the identifiers for a species.
 
     Parameters:
@@ -273,7 +297,7 @@ key = {}
 with open('key.json') as f:
     key = json.load(f)
 
-def get_locations(block):
+def locs_in(block):
     """Finds the locations a species appears in.
 
     Parameters:
@@ -293,54 +317,7 @@ def get_locations(block):
     # convert full state and province names to their abbreviations and
     # remove duplicates
     locs = {key[loc] if loc in key else loc for loc in locs}
-    return '"'+', '.join(locs)+'"'
-
-def parse_file(fn):
-    """Parse the pdf file (a genus treatment) into a csv file
-
-    The csv file has the format
-        species name, identifier, locations it appears in
-
-    The csv file name has the same name as the pdf.
-
-    Parameters:
-        fn - the file name of the pdf
-    """
-    # Load the text
-    text = load_treatment(fn)
-
-    # Find the names of the species, then find all occurences of the
-    # species and subspecies
-    names = get_species_names(text)
-
-    # Partition the text into blocks based on species and subspecies
-    blocks = partition_text(text, names)
-    message = 'There are{} as many blocks as there are names'
-
-    # Find the identifiers and the locations they appear in for each species
-    # and subspecies
-    ids = [find_id(block) for block in blocks]
-    locs = [get_locations(block) for block in blocks]
-
-    # put each sub/species, id, and list of locations onto a line in a csv file
-    csv_iter = zip(names, ids, locs)
-    lines = [', '.join([name, ID, loc]) for name, ID, loc in csv_iter]
-    s = '\n'.join(lines)
-
-    # name the csv file after the pdf input
-    fn_pattern = re.compile(r'(\w+)\.pdf')
-    fn = fn_pattern.match(fn)[1]
-    with open(fn+'.csv', 'w') as f:
-        f.write(s)
-
-def main():
-    parser = argparse.ArgumentParser(description='Extract flora data')
-    parser.add_argument('filenames', metavar='F', nargs='+',
-                        help='the treatment files to extract from')
-
-    args = parser.parse_args()
-    for fn in args.filenames:
-        parse_file(fn)
+    return '"'+', '.join(sorted(locs))+'"'
 
 if __name__ == '__main__':
     main()
