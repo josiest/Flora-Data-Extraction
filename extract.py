@@ -40,8 +40,8 @@ def extract_from(treatment):
     if not genus:
         raise RuntimeError("No genus found")
 
-    blocks = partition(text, genus)
-    return '\n'.join(data_in(block, name) for block, name in blocks)
+    lines = (data_in(block, name) for block, name in partition(text, genus))
+    return '\n'.join(lines)
 
 def load_treatment(fn, encoding='utf-8'):
     """ Load the treatement using textract
