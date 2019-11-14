@@ -236,7 +236,7 @@ def data_in(block, name):
 #   the date and the identifier, but usually not
 # It's possible that there are no identifiers
 
-id_pattern = re.compile(r'([(?:C|E|F|I|W) ]+)$')
+id_pattern = re.compile(r'([CEFIW ]+)$')
 def ids_in(block):
     """Finds the identifiers for a species.
 
@@ -248,8 +248,13 @@ def ids_in(block):
     """
     for line in block.split('\n'):
         matches = id_pattern.findall(line)
+
+        # If matches were found return the last match (the pattern is meant to
+        # be searched from the end of the line)
         if matches:
-            return matches[-1].replace(':','').strip()
+            return matches[-1].strip()
+
+    # if no matches found, there are no identifiers; return an empty string
     return ''
 
 # --- Finding provinces ---
