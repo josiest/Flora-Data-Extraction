@@ -44,8 +44,12 @@ def extract_from(treatment):
     if not genus:
         raise RuntimeError("No genus found")
 
-    lines = (data_in(block, name) for block, name in partition(text, genus))
-    return '\n'.join(lines)
+    lines = ''
+    sep = ''
+    for block, name in partition(text, genus):
+        lines += sep+'\n'.join(data_in(block, name))
+        sep = '\n'
+    return lines
 
 def load_treatment(fn, encoding='utf-8'):
     """ Load the treatement using textract
@@ -232,8 +236,10 @@ def build_intro_pattern(genus, species=r'[a-z]+', subspecies=''):
     return re.compile(pattern, flags=re.MULTILINE)
 
 def data_in(block, name):
-    """Extract the data from a block of a genus treatment."""
-    return ', '.join([name, ids_in(block), locs_in(block)])
+    """Generate the data from a block of a genus treatment."""
+    ids = ids_in(block)
+    for loc in locs_in(block):
+        yield ', '.join([name, ids, loc])
 
 # --- Finding identifiers ---
 #
@@ -312,7 +318,7 @@ with open('key.json') as f:
     key = json.load(f)
 
 def locs_in(block):
-    """Finds the locations a species appears in.
+    """Generates the locations that a species appears in.
 
     Parameters:
         block - a block of text (a string) with its scope limited to a single
@@ -323,7 +329,7 @@ def locs_in(block):
     if s:
         s = s[0]
     else:
-        return ""
+        raise StopIteration("No locations found!")
 
     # find all states and provinces in the paragraph
     locs = loc_pattern.findall(s)
@@ -331,7 +337,8 @@ def locs_in(block):
     # convert full state and province names to their abbreviations and
     # remove duplicates
     locs = {key[loc] if loc in key else loc for loc in locs}
-    return '"'+', '.join(sorted(locs))+'"'
+    for loc in sorted(locs):
+        yield loc
 
 if __name__ == '__main__':
     main()
