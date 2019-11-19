@@ -334,11 +334,30 @@ def locs_in(block):
     # find all states and provinces in the paragraph
     locs = loc_pattern.findall(s)
    
-    # convert full state and province names to their abbreviations and
     # remove duplicates
-    locs = {key[loc] if loc in key else loc for loc in locs}
-    for loc in sorted(locs):
-        yield loc
+    #locs = {key[loc] if loc in key else loc for loc in matches}
+
+    for loc in locs:
+        # convert full state and province names to their abbreviations
+        if loc in key:
+            loc = key[loc]
+
+        # Handle Nfld/Labr differentiation
+
+        # yield both if both
+        if loc == 'Nfld. & Labr.':
+            yield 'Nfld.'
+            yield 'Labr.'
+
+        # otherwise yield the relevant one
+        elif loc == 'Nfld. & Labr. (Labr.)':
+            yield 'Labr.'
+        elif loc == 'Nfld. & Labr. (Nfld.)':
+            yield 'Nfld.'
+
+        # now that these cases have been handled, yield as usual
+        else:
+            yield loc
 
 if __name__ == '__main__':
     main()
