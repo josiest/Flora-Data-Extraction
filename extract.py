@@ -7,7 +7,7 @@ import argparse
 from collections import OrderedDict
 
 # Data to extract:
-#   species name | identifier | states and provinces it appears in
+#   species name | states and provinces it appears in | identifier
 
 def main():
     # Build the command line argument parser
@@ -239,7 +239,7 @@ def data_in(block, name):
     """Generate the data from a block of a genus treatment."""
     ids = ids_in(block)
     for loc in locs_in(block):
-        yield ', '.join([name, ids, loc])
+        yield ', '.join([name, loc, ids])
 
 # --- Finding identifiers ---
 #
