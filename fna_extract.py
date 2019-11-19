@@ -1,12 +1,12 @@
 import textract
-import os
 import re
 import json
 import argparse
 
 from collections import OrderedDict
+from pathlib import Path
 
-file_dir = os.path.dirname(os.path.abspath(__file__))
+file_dir = Path(__file__).parent.absolute()
 
 # Data to extract:
 #   species name | states and provinces it appears in | identifier
@@ -61,7 +61,7 @@ def load_treatment(fn, encoding='utf-8'):
         fn - the file name of the treatment
         encoding - the encoding of the file (defaults to utf-8)
     """
-    path = os.path.join(os.getcwd(), fn)
+    path = Path.joinpath(Path.cwd(), fn)
     return textract.process(path, encoding=encoding).decode(encoding)
 
 # regex patterns
@@ -283,7 +283,7 @@ def ids_in(block):
 # easier to '|' the two to gether
 loc_names = []
 for fn in ('geography.txt', 'locations.txt'):
-    path = os.path.join(file_dir, fn)
+    path = Path.joinpath(file_dir, fn)
     with open(path) as f:
         s = f.read()
         # these are special regex charaters, so escape them wherever they
@@ -313,7 +313,7 @@ loc_text_pattern = re.compile(r'0\s+?m;.*?\.\n', re.DOTALL)
 
 # load the key which maps full state and province names to their abbreviations
 key_fn = 'key.json'
-key_path = os.path.join(file_dir, key_fn)
+key_path = Path.joinpath(file_dir, key_fn)
 
 key = {}
 with open('key.json') as f:
