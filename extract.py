@@ -18,7 +18,11 @@ def main():
     args = parser.parse_args()
     for treatment in args.filenames:
         # name the csv file after the pdf input
-        fn = re.match(r'(\w+)\.pdf', treatment)[1]
+        match = re.match(r'(\w+)\.pdf', treatment)
+        if not match:
+            print('"{}" is not a pdf file!'.format(treatment))
+            continue
+        fn = match[1]
         with open(fn+'.csv', 'w') as f:
             # write all of the extracted data in this treatment to the csv
             f.write(extract_from(treatment))
@@ -137,7 +141,7 @@ def partition(treatment, genus):
                 name = ' '.join(intro.groups())
 
         # otherwise, yield the first and only match
-        else:
+        elif len(intros) == 1:
             # Once again, we're technically yielding the previous match, but
             # we'll yield the current match at the end
             i = j
@@ -146,6 +150,11 @@ def partition(treatment, genus):
             if i > 0:
                 yield treatment[i:j], name
             name = next_name
+
+        # No match!
+        else:
+            message = "Couldn't find the species introduction for {}!"
+            raise StopIteration(message.format(name))
 
     # Finally yield the "current" match (the last match). Ideally I'd like to
     # cut off the info not relevant, but it's really not that important
