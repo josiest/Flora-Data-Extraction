@@ -6,7 +6,7 @@ This script is designed to extract data from pdf files of genera from the book *
 
 The easiest way to run the script is to move to a folder where the only pdf files are genera files from *Flora of North America* and write:
 
-    python3 extract.py *.pdf
+    python3 fna_extract.py *.pdf
 
 The script will then run on every pdf file in the directory and create a csv for each pdf. `geography.txt`, `locations.txt`, and `key.json` should be in the same directory as the script. The script currently only supports being run from the same directory it's contained in.
 

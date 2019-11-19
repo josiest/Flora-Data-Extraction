@@ -6,6 +6,8 @@ import argparse
 
 from collections import OrderedDict
 
+file_dir = os.path.dirname(os.path.abspath(__file__))
+
 # Data to extract:
 #   species name | states and provinces it appears in | identifier
 
@@ -281,7 +283,7 @@ def ids_in(block):
 # easier to '|' the two to gether
 loc_names = []
 for fn in ('geography.txt', 'locations.txt'):
-    path = os.path.join(os.getcwd(), fn)
+    path = os.path.join(file_dir, fn)
     with open(path) as f:
         s = f.read()
         # these are special regex charaters, so escape them wherever they
@@ -311,7 +313,7 @@ loc_text_pattern = re.compile(r'0\s+?m;.*?\.\n', re.DOTALL)
 
 # load the key which maps full state and province names to their abbreviations
 key_fn = 'key.json'
-key_path = os.path.join(os.getcwd(), key_fn)
+key_path = os.path.join(file_dir, key_fn)
 
 key = {}
 with open('key.json') as f:
