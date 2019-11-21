@@ -2,11 +2,13 @@ import textract
 import re
 import json
 import argparse
+import os
 
 from collections import OrderedDict
 from pathlib import Path
 
 file_dir = Path(__file__).parent.absolute()
+cwd = Path()
 
 # Data to extract:
 #   species name | states and provinces it appears in | identifier
@@ -14,20 +16,45 @@ file_dir = Path(__file__).parent.absolute()
 def main():
     # Build the command line argument parser
     parser = argparse.ArgumentParser(description='Extract flora data')
-    parser.add_argument('filenames', metavar='F', nargs='+',
+    parser.add_argument('-A', action='store_true',
+                        help='parse all pdf files in the current directory')
+    parser.add_argument('filenames', metavar='F', nargs='*',
                         help='the treatment files to extract from')
 
+    success = True
     args = parser.parse_args()
-    for treatment in args.filenames:
+
+    treatments = []
+
+    # The user specified to parse all pdf files in the directory
+    if args.A and not args.filenames:
+        treatments = [fn for fn in os.listdir() if '.pdf' in fn]
+
+    # The user specified the files manually
+    elif args.filenames:
+        treatments = args.filenames
+
+    else:
+        message = 'Please either specify filenames manually or use the '\
+                  '"parse all" flag (-A).'
+        success = False
+
+    for treatment in treatments:
         # name the csv file after the pdf input
         match = re.match(r'(\w+)\.pdf', treatment)
         if not match:
             print('"{}" is not a pdf file!'.format(treatment))
+            success = False
             continue
         fn = match[1]
         with open(fn+'.csv', 'w') as f:
             # write all of the extracted data in this treatment to the csv
             f.write(extract_from(treatment))
+
+    if success:
+        print('Data was extracted successfully')
+    else:
+        print('An error occured when extracting the flora data')
 
 def extract_from(treatment):
     """Extract the data from the genus treatment.
@@ -316,7 +343,7 @@ key_fn = 'key.json'
 key_path = Path.joinpath(file_dir, key_fn)
 
 key = {}
-with open('key.json') as f:
+with open(key_path) as f:
     key = json.load(f)
 
 def locs_in(block):
