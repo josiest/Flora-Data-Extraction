@@ -43,12 +43,17 @@ def main():
         # name the csv file after the pdf input
         match = re.match(r'(\w+)\.pdf', treatment)
         if not match:
-            print('"{}" is not a pdf file!'.format(treatment))
+            print(f'"{treatment}" is not a pdf file!')
             success = False
             continue
         fn = match[1]
         with open(fn+'.csv', 'w') as f:
             # write all of the extracted data in this treatment to the csv
+            #try:
+            #    f.write(extract_from(treatment))
+            #except Exception as e:
+            #    print(f'{e}')
+            #    success = False
             f.write(extract_from(treatment))
 
     if success:
@@ -89,7 +94,7 @@ def load_treatment(fn, encoding='utf-8'):
         encoding - the encoding of the file (defaults to utf-8)
     """
     path = Path.joinpath(Path.cwd(), fn)
-    return textract.process(path, encoding=encoding).decode(encoding)
+    return textract.process(str(path), encoding=encoding).decode(encoding)
 
 # regex patterns
 
@@ -186,8 +191,8 @@ def partition(treatment, genus):
 
         # No match!
         else:
-            message = "Couldn't find the species introduction for {}!"
-            raise StopIteration(message.format(name))
+            message = f"Couldn't find the species introduction for {name}!"
+            raise StopIteration(message)
 
     # Finally yield the "current" match (the last match). Ideally I'd like to
     # cut off the info not relevant, but it's really not that important
@@ -212,7 +217,7 @@ def build_key_pattern(genus):
     # lowercase word and "(in part)" doesn't necessarily appear
 
     key_pattern = re.compile(r'\d+\.[ ]*('+genus+' [a-z]+)'+
-                             r'(?: \(in part\))?\n', flags=re.MULTILINE)
+                             r'(?: \(in part\))?\s*\n', flags=re.MULTILINE)
     return key_pattern
 
 def build_intro_pattern(genus, species=r'[a-z]+', subspecies=''):
@@ -336,7 +341,7 @@ loc_pattern = re.compile(loc_names)
 #
 # The line doesn't necessarily begin at 0, but a line does end at '.\n'
 
-loc_text_pattern = re.compile(r'0\s+?m;.*?\.\n', re.DOTALL)
+loc_text_pattern = re.compile(r'0\s+?m;.*?\.\s*\n', re.DOTALL)
 
 # load the key which maps full state and province names to their abbreviations
 key_fn = 'key.json'
