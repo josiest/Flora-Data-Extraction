@@ -3,6 +3,7 @@ import re
 import json
 import argparse
 import os
+import textwrap
 
 from collections import OrderedDict
 from pathlib import Path
@@ -15,7 +16,19 @@ cwd = Path()
 
 def main():
     # Build the command line argument parser
-    parser = argparse.ArgumentParser(description='Extract flora data')
+    description = '''\
+            Extract data from genus treatment pdfs of "Flora of North America
+
+            The csv ouptut files should have the following format:
+
+                <genus name>, <locations appeared in>, <identifier>
+    '''
+    prog='python -m florana.extract'
+
+    fmt_class = argparse.RawDescriptionHelpFormatter
+    parser = argparse.ArgumentParser(formatter_class=fmt_class,
+                                     description=textwrap.dedent(description),
+                                     prog=prog)
     parser.add_argument('-A', action='store_true',
                         help='parse all pdf files in the current directory')
     parser.add_argument('filenames', metavar='F', nargs='*',
