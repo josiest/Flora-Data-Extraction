@@ -10,13 +10,17 @@ The easiest way to run the script is to move to a folder where the only pdf file
 
 The script will then run on every pdf file in the directory and create a csv for each pdf.
 
-**Note:** if you also have python 2 installed on your system, you will probably need to run `python3` instead of `python`
+#### Note: python 2
+> If you also have python 2 installed on your system, you will probably need to run `python3` instead of `python`
 
 ### Installing
 
     python -m pip install florana
 
+#### Note: Windows Users
+> If you're running Windows, you'll likely need to install [poppler](https://blog.alivate.com.au/poppler-windows/). You'll need to extract the latest binary from the link provided and add its bin folder to your PATH environment variable. *i.e.* If `C:\path\to\poppler` is the directory where you extracted poppler, then you'll need to add `C:\path\to\poppler\bin` to your PATH environment variable.
+
 ### Dependencies
 
-python > 3  
-[textract](https://textract.readthedocs.io/en/stable/)
+- python > 3  
+- [textract](https://textract.readthedocs.io/en/stable/)
