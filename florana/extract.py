@@ -4,12 +4,24 @@ import json
 import argparse
 import os
 import textwrap
+import itertools
 
-from collections import OrderedDict
 from pathlib import Path
+from collections import OrderedDict
 
 file_dir = Path(__file__).parent.absolute()
 cwd = Path()
+
+# TODO: Alter the species-name pattern to account for more words between the
+#       species name and the subspecies name.
+#
+# TODO: Account for multiple species keys in a treatment
+#
+# TODO: Identifiers go in separate csv file
+#
+# TODO: Specify single output file
+#
+# TODO: Recursively iterate through a directory
 
 # Data to extract:
 #   species name | states and provinces it appears in | identifier
@@ -54,7 +66,7 @@ def main():
 
     for treatment in treatments:
         # name the csv file after the pdf input
-        match = re.match(r'(\w+)\.pdf', treatment)
+        match = re.match(r'([\w\.]+)\.pdf', treatment)
         if not match:
             print(f'"{treatment}" is not a pdf file!')
             success = False
@@ -62,12 +74,11 @@ def main():
         fn = match[1]
         with open(fn+'.csv', 'w') as f:
             # write all of the extracted data in this treatment to the csv
-            #try:
-            #    f.write(extract_from(treatment))
-            #except Exception as e:
-            #    print(f'{e}')
-            #    success = False
-            f.write(extract_from(treatment))
+            try:
+                f.write(extract_from(treatment))
+            except Exception as e:
+                print(e)
+                success = False
 
     if success:
         print('Data was extracted successfully')
@@ -89,13 +100,14 @@ def extract_from(treatment):
     text = load_treatment(treatment)
     genus = genus_in(text)
     if not genus:
-        raise RuntimeError("No genus found")
+        raise ValueError("No genus was found!")
 
     lines = ''
     sep = ''
     for block, name in partition(text, genus):
         lines += sep+'\n'.join(data_in(block, name))
         sep = '\n'
+
     return lines
 
 def load_treatment(fn, encoding='utf-8'):
@@ -119,7 +131,8 @@ def load_treatment(fn, encoding='utf-8'):
 #
 # Where n is an arbitrary natural and GENUS is all-caps. GENUS doesn't
 # necessarily end the line
-genus_pattern = re.compile(r'^[ ]*\d+\.[ ]*([A-Z]+)', flags=re.MULTILINE)
+genus_pattern = re.compile(r'^[ ]*\d+[a-z]*\.[ ]*([A-Z]+)\s+',
+                           flags=re.MULTILINE)
 
 def genus_in(treatment):
     """Return the genus name in the given treatment string.
@@ -137,79 +150,206 @@ def genus_in(treatment):
 def partition(treatment, genus):
     """Yield the block and name in treatment associated with each species*.
 
+    *Note that this includes subspecies.
+
     treatment - the treatment text (a string)
     species - a list of species names
-
-    * This includes subspecies.
     """
-    key_pattern = build_key_pattern(genus)
-    species = key_pattern.findall(treatment)
+    # Find all the species names in the treatment and reorder them in the order
+    # they appear in the text
+    name_gens = [keys_in(subgroup, genus) for subgroup in subgroups(treatment)]
+    names = sorted(itertools.chain(*name_gens),
+                   key=lambda s: int(s.split('.')[0]))
 
-    # It's possible that the pattern will find duplicates of a species in
-    # the species key. We want to remove the duplicates, but preserve the order,
-    # so use the keys of an OrderedDict as a set.
-    species = list(OrderedDict.fromkeys(species).keys())
+    # We want to remove the number before each name and also remove any
+    # duplicates while preserving order. OrderedDict can acheive this
+    names = (' '.join(name.split(' ')[1:3]).strip() for name in names)
+    names = OrderedDict.fromkeys(names).keys()
+
+    for block, name in species_blocks(treatment, names):
+        # each species block may have subspecies
+        has_subspecies = False
+        for sub_block, sub_name in subspecies_blocks(block, name):
+            has_subspecies = True
+            yield sub_block, sub_name
+
+        if not has_subspecies:
+            yield block, name
+
+def subgroups(treatment):
+    """Generate each subgroup block in order."""
+    # Find all occurences of genus headers
+    headers = list(genus_pattern.finditer(treatment))
 
     i, j = 0, 0
+    # If there are subgroups, the first header is for the entire treatement and
+    # there's no species key before the header for the first subgroup, so take
+    # the first header out of the list
+    if len(headers) > 1:
+        headers = headers[1:]
+
+    for next_header in headers:
+        # Update j to the start of the current header: we're really yielding
+        # the previous match
+        j = next_header.start()
+
+        # If the block starts at index 0, then we haven't even reached the first
+        # subgroup block, so don't yield yet
+        if i > 0:
+            yield treatment[i:j]
+
+        # Update i to the start of the current header: on the next iteration
+        # it will become the start of the previous header and j will be the
+        # start of the current header.
+        i = j
+
+    # Once this is encountered, all info is irrelevant for this program
+    try:
+        k = treatment.index("OTHER REFERENCES")
+    except:
+        k = -1
+    if i > 0:
+        yield treatment[j:k]
+
+    # If there were no matches, then a genus couldn't be found
+    else:
+        raise ValueError("No genus was found!")
+
+def keys_in(subgroup, genus):
+    """Generate all species names from the species key in a subgroup block.
+
+    subgroup - the subgroup block containing the species
+    genus - of the species
+    """
+    key_pattern = build_key_pattern(genus)
+
+    has_species_key = False
+    for match in key_pattern.finditer(subgroup):
+        has_species_key = True
+        yield match[0]
+
     # it's possible that the text has no species key - this happens when
     # there's only one species
-    name = ''
-    if not species:
+    if not has_species_key:
+        # Compile the intro pattern without knowing what the species is. Since
+        # there's only one species this is fine.
         intro_pattern = build_intro_pattern(genus)
-        intro = intro_pattern.search(treatment)
+        intro = intro_pattern.search(subgroup)
 
         if not intro:
-            raise StopIteration('No species found')
+            raise ValueError('No species found!')
 
-        j = intro.start()
-        name = ' '.join(intro.groups())
+        else:
+            yield '1. '+' '.join(intro.groups())
+
+def species_blocks(treatment, names):
+    """Generate all species blocks* and names in treatment.
+
+    *Note that this includes all subspecies if any.
+
+    treatment - the treatment text
+    names - an ordered list of all species names that appear in the treatment
+    """
+    error=''
+    i, j = 0, 0
 
     # Split the whole text into blocks based on the introduction to each subsp.
-    for next_name in species:
+    for next_name in names:
         # split the name up into its individual parts in order to pass once
-        # again into the intro_pattern builder
+        # again into the intro_pattern builder, this time compiling to look
+        # for a specific species.
+        if len(next_name.split(' ')) > 2:
+            if error:
+                error += '\n'
+            error += f'"{next_name}" is too long: expected 2 words!'
+            continue
         genus, species = next_name.split(' ')
         intro_pattern = build_intro_pattern(genus, species=species)
+        intro = intro_pattern.search(treatment)
 
-        # get a list of regex matches
-        intros = list(intro_pattern.finditer(treatment))
+        # Produce error message if species introduction couldn't be found
+        if not intro:
+            if error:
+                error += '\n'
+            error += f'Could not find species introduction for "{next_name}"'
+            continue
 
-        # if there are subspecies, go through each one
-        if len(intros) > 1:
-            # rebuild the intro pattern to specifically look for subspecies
-            intro_pattern = build_intro_pattern(genus, species=species,
-                                                subspecies=r'[a-z]+')
+        j = intro.start()
 
-            # go through each species introduction match
-            for intro in intro_pattern.finditer(treatment):
-                # This is technically actually yielding the previous match,
-                # but at the end we'll yield the current match
-                i = j
-                j = intro.start()
-                # Only yield the previous match when we've actually found it
-                if i > 0:
-                    yield treatment[i:j], name
-                name = ' '.join(intro.groups())
+        # If i > j, then something went wrong when we reordered the search
+        # results.
+        if i > j:
+            if error:
+                error += '\n'
+            error += f'When searching in {next_name}: Indices ({i}, {j}) are '\
+                     'out of order!'
 
-        # otherwise, yield the first and only match
-        elif len(intros) == 1:
-            # Once again, we're technically yielding the previous match, but
-            # we'll yield the current match at the end
-            i = j
-            j = intros[0].start()
-            # Once again, only yield the previous match after it's been found
-            if i > 0:
-                yield treatment[i:j], name
-            name = next_name
+        # If the block starts at index 0, then we haven't even reached the first
+        # species block, so don't yield yet
+        elif i > 0:
+            yield treatment[i:j], name
 
-        # No match!
-        else:
-            message = f"Couldn't find the species introduction for {name}!"
-            raise StopIteration(message)
+        name = next_name
+        i = j
 
-    # Finally yield the "current" match (the last match). Ideally I'd like to
-    # cut off the info not relevant, but it's really not that important
-    yield treatment[j:-1], name
+    # Finally yield the "current" match (the last match).
+    try:
+        k = treatment.index("OTHER REFERENCES")
+    except ValueError:
+        k = -1
+    if i > 0:
+        yield treatment[j:k], name
+
+    if error:
+        error += "\nErrors occured while partitioning species blocks!"
+        raise ValueError(error)
+
+def subspecies_blocks(block, species):
+    """Generate all subspecies blocks in a species block, if any.
+    
+    block - the species block to look in
+    species - the species name of the form "<genus> <species>"
+    """
+    if len(species.split(' ')) > 2:
+        raise ValueError(f'"{species}" is too long: expected 2 words!')
+    genus, species = species.split(' ')
+
+    # Build the intro pattern to specifically look for subspecies
+    intro_pattern = build_intro_pattern(genus, species=species,
+                                        subspecies=r'[a-z]+')
+
+    error = ''
+    i, j = 0, 0
+    name = ''
+    # go through each subspecies introduction match
+    for intro in intro_pattern.finditer(block):
+
+        # Start
+        j = intro.start()
+        # Only yield the previous match when we've actually found it
+        if i > 0:
+            if i > j:
+                if error:
+                    error += '\n'
+                error += f'When searching in "{name}" block: Indices ({i}, {j}'\
+                         ') are out of order!'
+            yield block[i:j], name
+
+        # The name should include the entire species, including the subspecies
+        # The intro pattern should have matched all of these.
+        name = ' '.join(intro.groups())
+        i = j
+
+    # It's possible that there are no subspecies. The intro pattern wouldn't
+    # have found anything and i would have never been incremented. If this is
+    # the case we don't want to yield anything, otherwise yield the rest of
+    # subspecies block until the end of the species block
+    if i > 0:
+        yield block[j:-1], name
+
+    if error:
+        error += "\nErrors occured when partitioning the treatment"
+        raise ValueError(error)
 
 def build_key_pattern(genus):
     """Build a regex pattern for the genus key
@@ -227,9 +367,13 @@ def build_key_pattern(genus):
     #  n. <genus> <species> [(in part)]\n
     #
     # Where n is an arbitrary natural, genus is specified, species is a
-    # lowercase word and "(in part)" doesn't necessarily appear
+    # lowercase word and "(in part)" doesn't necessarily appear.
+    #
+    # The key pattern matches two subgroups:
+    #   1. The number that orders how the species appears in the text
+    #   2. The genus and species name
 
-    key_pattern = re.compile(r'\d+\.[ ]*('+genus+' [a-z]+)'+
+    key_pattern = re.compile(r'(\d+)\.[ ]*('+genus+' [a-z]+)'+
                              r'(?: \(in part\))?\s*\n', flags=re.MULTILINE)
     return key_pattern
 
@@ -245,29 +389,24 @@ def build_intro_pattern(genus, species=r'[a-z]+', subspecies=''):
 
     1 - the genus name
     2 - the species name
-    2 - the subspecies name (if specified)
+    3 - the subspecies name (if specified)
     """
     # --- Species Introduction ---
     #
     # Relies on the assumption that a species introduction is formatted as:
     #
-    #  n[a]*. Species name {arbitrary text} [subsp. name] {arbitrary text}
+    #  n[a]*. Species name {arbitrary text} [(subsp|var). name] {arbitrary text}
     #
     # Where n is an arbitrary natural and a is an arbitrary alphabetical
     # character.
 
     # This will match the "n[a]*" part of the inroduction
-    pattern = r'^\d+[a-z]'
+    pattern = r'^\d+'
 
     # if the subspecies was specified, we know there must be alphabetical
     # numbering on them
     if subspecies:
-        pattern += '+'
-
-    # otherwise, we're either not sure there are subspecies or know that there's
-    # none, which is exactly what a '*' match is useful for
-    else:
-        pattern += '*'
+        pattern += '[a-z]+'
 
     # This will now match the 'n[a]*. Species name' part of the introduction
     pattern += r'\.[ ]*('+genus+') ('+species+')'
@@ -275,12 +414,12 @@ def build_intro_pattern(genus, species=r'[a-z]+', subspecies=''):
     # if the subspecies was specified, we know there must be some descriptor
     # followed by 'subsp.' and the subspecies name
     #
-    # i.e. the '{arbitrary text} [subsp. name] {arbitrary text}' part of the
-    # introduction is now matched
+    # i.e. the '{arbitrary text} [(subsp|var). name] {arbitrary text}' part of
+    # the introduction is now matched
     if subspecies:
-        pattern += r'.*subsp\. ('+subspecies+')'
+        pattern += r'.*?(?:subsp|var)\. ('+subspecies+')'
 
-    return re.compile(pattern, flags=re.MULTILINE)
+    return re.compile(pattern, flags=re.MULTILINE|re.DOTALL)
 
 def data_in(block, name):
     """Generate the data from a block of a genus treatment."""
@@ -371,15 +510,14 @@ def locs_in(block):
         block - a block of text (a string) with its scope limited to a single
                 species or subspecies
     """
-    # First find the flowering paragraph
-    s = loc_text_pattern.search(block)
-    if s:
-        s = s[0]
-    else:
-        raise StopIteration("No locations found!")
+    # First find the locations paragraph
+    loc_match = loc_text_pattern.search(block)
+    loc_text = ""
+    if loc_match:
+        loc_text = loc_match[0]
 
     # find all states and provinces in the paragraph
-    locs = loc_pattern.findall(s)
+    locs = loc_pattern.findall(loc_text)
    
     # remove duplicates
     #locs = {key[loc] if loc in key else loc for loc in matches}
