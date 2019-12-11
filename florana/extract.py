@@ -12,19 +12,10 @@ from collections import OrderedDict
 file_dir = Path(__file__).parent.absolute()
 cwd = Path()
 
-# TODO: Alter the species-name pattern to account for more words between the
-#       species name and the subspecies name.
-#
-# TODO: Account for multiple species keys in a treatment
-#
-# TODO: Identifiers go in separate csv file
-#
-# TODO: Specify single output file
-#
 # TODO: Recursively iterate through a directory
 
 # Data to extract:
-#   species name | states and provinces it appears in | identifier
+#   species name | states and provinces it appears in | classifier
 
 def main():
     # Build the command line argument parser
@@ -33,7 +24,11 @@ def main():
 
             The csv ouptut files should have the following format:
 
-                <genus name>, <locations appeared in>, <identifier>
+                <genus name>, <locations appeared in>, <classifier>
+
+            Example usage:
+
+                python -m florana.extract -A -o data.csv
     '''
     prog='python -m florana.extract'
 
@@ -45,6 +40,8 @@ def main():
                         help='parse all pdf files in the current directory')
     parser.add_argument('filenames', metavar='F', nargs='*',
                         help='the treatment files to extract from')
+    parser.add_argument('-o', action='store',
+                        help='specify a single output file (csv)')
 
     success = True
     args = parser.parse_args()
@@ -62,7 +59,13 @@ def main():
     else:
         message = 'Please either specify filenames manually or use the '\
                   '"parse all" flag (-A).'
-        success = False
+        raise ValueError(message)
+
+    locations = ''
+    classifiers = ''
+    sep = ''
+    error = ''          # Brief error message for program ouput to console
+    log_error = ''      # Verbose error message for error.log
 
     for treatment in treatments:
         # name the csv file after the pdf input
@@ -72,43 +75,110 @@ def main():
             success = False
             continue
         fn = match[1]
-        with open(fn+'.csv', 'w') as f:
-            # write all of the extracted data in this treatment to the csv
-            try:
-                f.write(extract_from(treatment))
-            except Exception as e:
-                print(e)
-                success = False
+
+        # If the extracting algorithm couldn't find locations, keep track of
+        # the error messages
+        results = extract_from(treatment)
+        if results['error']:
+            success = False
+            error += sep+results['error']
+            log_error += sep+results['verbose-error']
+
+        # If the user specified a single output file, compile all the
+        # lines into a single string and write to a file later
+        if args.o:
+            locations += sep+results['locations']
+            classifiers += sep+results['classifiers']
+
+        # If the user didn't specify a single output file write the files
+        # for each treatment as we go
+        else:
+            with open(fn+'.csv', 'w') as f:
+                f.write(results['locations'])
+            with open(fn+'-classifiers.csv', 'w') as f:
+                f.write(results['classifiers'])
+
+        sep = '\n'
+
+    # if the user specified a single output file, now is when we write it
+    if args.o:
+        # locations file
+        fn = args.o
+
+        # classifiers file
+        idfn = ''
+
+        # The user may have alread include the file extension
+        try:
+            i = fn.index('.csv')
+            idfn = fn[:i]+'-classifiers'+fn[i:]
+
+        # If the user didn't include the file extension, add it
+        except ValueError:
+            fn += '.csv'
+            idfn = fn+'-classifiers.csv'
+
+        with open(fn, 'w') as f:
+            f.write(locations)
+        with open(idfn, 'w') as f:
+            f.write(classifiers)
 
     if success:
         print('Data was extracted successfully')
     else:
-        print('An error occured when extracting the flora data')
+        print(error)
+        with open('error.log', 'w') as f:
+            f.write(log_error)
+        print('An error occured when extracting the flora data. See ' \
+              'error.log for more details.')
 
 def extract_from(treatment):
     """Extract the data from the genus treatment.
 
     Parameters:
         treatment - a pdf file name of the genus treatment.
+        data_type - "locations" or "classifiers"
 
-    Returns a string with the following csv format for each line:
+    Returns a dict of results with the following format
 
-        <Full species name>, <Identifiers>, "<Locations appeared in>"
+        "locations" - a string of species names and locations they appear in
 
-    Raises a runtime error if the genus isn't found in the treatment.
+        "classifiers" - a string of species names and their classifiers
+
+        "error" - a brief error message stating which species the algorithm
+                  couldn't find locations for
+
+        "verbose-error" - an error message stating which species the algorithm
+                          couldn't find locations for as well as the block of
+                          text that the algorithm searched in for the locations
+
+    Raises a Value error if the genus isn't found in the treatment.
     """
     text = load_treatment(treatment)
     genus = genus_in(text)
     if not genus:
         raise ValueError("No genus was found!")
 
-    lines = ''
+    data = {'locations': '', 'classifiers': '',
+            'error': '', 'verbose-error': ''}
     sep = ''
+
     for block, name in partition(text, genus):
-        lines += sep+'\n'.join(data_in(block, name))
+
+        locs = '\n'.join(f'{name}, {loc}' for loc in locs_in(block))
+        if not locs:
+            data['error'] += f"{sep}Couldn't find locations for {name}"
+            data['verbose-error'] += f"{sep}Couldn't find locations for " \
+                                     f"{name} in:\n\n{block}\n"
+        else:
+            data['locations'] += sep+locs
+
+        ids = ids_in(block)
+        data['classifiers'] += f'{sep}{name}, {ids}'
+
         sep = '\n'
 
-    return lines
+    return data
 
 def load_treatment(fn, encoding='utf-8'):
     """ Load the treatement using textract
@@ -205,7 +275,7 @@ def subgroups(treatment):
 
     # Once this is encountered, all info is irrelevant for this program
     try:
-        k = treatment.index("OTHER REFERENCES")
+        k = treatment.lower().index("other reference")
     except:
         k = -1
     if i > 0:
@@ -421,32 +491,28 @@ def build_intro_pattern(genus, species=r'[a-z]+', subspecies=''):
 
     return re.compile(pattern, flags=re.MULTILINE|re.DOTALL)
 
-def data_in(block, name):
-    """Generate the data from a block of a genus treatment."""
-    ids = ids_in(block)
-    for loc in locs_in(block):
-        yield ', '.join([name, loc, ids])
-
-# --- Finding identifiers ---
+# --- Finding classifiers ---
 #
 # Always terminates the line
 # Always set off by spaces (never punctuation - before or after)
 # If a common name (of the form "* Common name") appears, there will be
-#   text between the date and identifiers
+#   text between the date and classifiers
 # Otherwise it's possible to have a "(parenthetical statement)" between
-#   the date and the identifier, but usually not
-# It's possible that there are no identifiers
+#   the date and the classifier, but usually not
+# It's possible that there are no classifiers
 
-id_pattern = re.compile(r'([CEFIW ]+)$')
+id_pattern = re.compile(r'([CEFIW ]+)\s*$', re.MULTILINE)
 def ids_in(block):
-    """Finds the identifiers for a species.
+    """Finds the classifiers for a species.
 
     Parameters:
         block - a block of text (a string) with its scope limited to a single
                 species or subspecies
 
-    Returns an empty string if there are no identifiers for this species.
+    Returns an empty string if there are no classifiers for this species.
     """
+    error = ''
+    sep = ''
     for line in block.split('\n'):
         matches = id_pattern.findall(line)
 
@@ -455,7 +521,7 @@ def ids_in(block):
         if matches:
             return matches[-1].strip()
 
-    # if no matches found, there are no identifiers; return an empty string
+    # if no matches found, there are no classifiers; return an empty string
     return ''
 
 # --- Finding provinces ---
@@ -493,7 +559,7 @@ loc_pattern = re.compile(loc_names)
 #
 # The line doesn't necessarily begin at 0, but a line does end at '.\n'
 
-loc_text_pattern = re.compile(r'0\s+?m;.*?\.\s*\n', re.DOTALL)
+loc_text_pattern = re.compile(r'0[\)\]]?\s+?m;.*?\..*?\n', re.DOTALL)
 
 # load the key which maps full state and province names to their abbreviations
 key_fn = 'key.json'
@@ -541,7 +607,7 @@ def locs_in(block):
             yield 'Nfld.'
 
         # now that these cases have been handled, yield as usual
-        else:
+        elif loc:
             yield loc
 
 if __name__ == '__main__':
