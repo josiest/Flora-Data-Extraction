@@ -5,7 +5,7 @@ with open('README.md', 'r') as fn:
 
 setuptools.setup(
     name='florana',
-    version='1.1.1',
+    version='1.1.6',
     description='Extract data from Flora of North America',
     long_description=long_description,
     long_description_content_type='text/markdown',

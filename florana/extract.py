@@ -19,7 +19,7 @@ cwd = Path()
 
 def main():
     # Build the command line argument parser
-    description = '''\
+    description = '''
             Extract data from genus treatment pdfs of "Flora of North America
 
             The csv ouptut files should have the following format:
@@ -127,8 +127,8 @@ def main():
         print('Data was extracted successfully')
     else:
         print(error)
-        with open('error.log', 'w') as f:
-            f.write(log_error)
+        with open('error.log', 'wb') as f:
+            f.write(log_error.encode('utf8'))
         print('An error occured when extracting the flora data. See ' \
               'error.log for more details.')
 
@@ -161,27 +161,30 @@ def extract_from(treatment):
 
     data = {'locations': '', 'classifiers': '',
             'error': '', 'verbose-error': ''}
-    sep = ''
+    locsep = ''
+    errsep = ''
+    idsep = ''
 
     for block, name in partition(text, genus):
 
+        ids = ids_in(block)
+        data['classifiers'] += f'{idsep}{name}, {ids}'
+        idsep = '\n'
+
         locs = '\n'.join(f'{name}, {loc}' for loc in locs_in(block))
         if not locs:
-            data['error'] += f"{sep}Couldn't find locations for {name}"
-            data['verbose-error'] += f"{sep}Couldn't find locations for " \
+            data['error'] += f"{errsep}Couldn't find locations for {name}"
+            data['verbose-error'] += f"{errsep}Couldn't find locations for " \
                                      f"{name} in:\n\n{block}\n"
+            errsep = '\n'
         else:
-            data['locations'] += sep+locs
-
-        ids = ids_in(block)
-        data['classifiers'] += f'{sep}{name}, {ids}'
-
-        sep = '\n'
+            data['locations'] += locsep+locs
+            locsep = '\n'
 
     return data
 
 def load_treatment(fn, encoding='utf-8'):
-    """ Load the treatement using textract
+    """ Load the treatment using textract
 
     Parameters:
 
@@ -487,7 +490,7 @@ def build_intro_pattern(genus, species=r'[a-z]+', subspecies=''):
     # i.e. the '{arbitrary text} [(subsp|var). name] {arbitrary text}' part of
     # the introduction is now matched
     if subspecies:
-        pattern += r'.*?(?:subsp|var)\. ('+subspecies+')'
+        pattern += r'.*?(?:subsp|var)\.\s*('+subspecies+')'
 
     return re.compile(pattern, flags=re.MULTILINE|re.DOTALL)
 
@@ -544,11 +547,22 @@ for fn in ('geography.txt', 'locations.txt'):
         # characters I need to group each name w/o capturing, hence the (?:)
         #
         # Also cut off the last blank line
-        loc_names.append('|'.join(['(?:'+m+')' for m in s.split('\n')[:-1]]))
+        loc_names.extend('(?:'+m+')' for m in s.split('\n')[:-1])
 
-# add the parentheses to capture the names
-loc_names = '('+'|'.join(loc_names)+')'
-loc_pattern = re.compile(loc_names)
+# If one string is a substring of another, regex will match with whatever
+# comes first in the pattern. We want to match the longest substrings possible
+# so sort the location names by length
+#
+# Also replace spaces in each name with arbitrary whitespace
+loc_names = sorted((loc.replace(' ', r'\s*') for loc in loc_names),
+                   key=len, reverse=True)
+
+# Assumes locations have the following format:
+#
+# {<beginning of line>, <;> or <,>} {location name (may include newlines)}{<;>,
+#  <,> or <end of line>}
+loc_pattern_str = r'[^;,]\s*('+'|'.join(loc_names)+r')(?:[;,]|\s*?$|\s*?\n)'
+loc_pattern = re.compile(loc_pattern_str, re.MULTILINE)
 
 # --- Location Paragraph Pattern ---
 #
@@ -559,7 +573,10 @@ loc_pattern = re.compile(loc_names)
 #
 # The line doesn't necessarily begin at 0, but a line does end at '.\n'
 
-loc_text_pattern = re.compile(r'0[\)\]]?\s+?m;.*?\..*?\n', re.DOTALL)
+loc_text_pattern = re.compile(r'0[\)\]]?\s+?m;.*?(?<!Nfld|Labr|..St)'+
+                              r'\.\s*?(?:\n|$)', re.DOTALL|re.MULTILINE)
+loc_exception_pattern = re.compile(r'(?:Flowering.*?;|introduced;)' \
+                                   r'.*?\.\s*?(?:\n|$)', re.DOTALL|re.MULTILINE)
 
 # load the key which maps full state and province names to their abbreviations
 key_fn = 'key.json'
@@ -578,6 +595,8 @@ def locs_in(block):
     """
     # First find the locations paragraph
     loc_match = loc_text_pattern.search(block)
+    if not loc_match:
+        loc_match = loc_exception_pattern.search(block)
     loc_text = ""
     if loc_match:
         loc_text = loc_match[0]
@@ -589,22 +608,24 @@ def locs_in(block):
     #locs = {key[loc] if loc in key else loc for loc in matches}
 
     for loc in locs:
+        # in replace all whitespace with a single space
+        loc = ' '.join(loc.split())
+
         # convert full state and province names to their abbreviations
         if loc in key:
             loc = key[loc]
 
         # Handle Nfld/Labr differentiation
 
-        # yield both if both
-        if loc == 'Nfld. & Labr.':
+        # if specified, yield the relevant one
+        if '(Labr.)' in loc:
+            yield 'Labr.'
+        elif '(Nfld.)' in loc:
+            yield 'Nfld.'
+        # otherwise yield both if both
+        elif 'Nfld' in loc and 'Labr' in loc:
             yield 'Nfld.'
             yield 'Labr.'
-
-        # otherwise yield the relevant one
-        elif loc == 'Nfld. & Labr. (Labr.)':
-            yield 'Labr.'
-        elif loc == 'Nfld. & Labr. (Nfld.)':
-            yield 'Nfld.'
 
         # now that these cases have been handled, yield as usual
         elif loc:
