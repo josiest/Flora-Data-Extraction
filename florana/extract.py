@@ -446,11 +446,11 @@ def build_key_pattern(genus):
     #   1. The number that orders how the species appears in the text
     #   2. The genus and species name
 
-    key_pattern = re.compile(r'(\d+)\.[ ]*('+genus+' [a-z]+)'+
+    key_pattern = re.compile(r'(\d+)\.[ ]*('+genus+r' (?:x\\)?[a-z\-]+)'+
                              r'(?: \(in part\))?\s*\n', flags=re.MULTILINE)
     return key_pattern
 
-def build_intro_pattern(genus, species=r'[a-z]+', subspecies=''):
+def build_intro_pattern(genus, species=r'(?:x\\)?[a-z\-]+', subspecies=''):
     """Build a regex pattern for a species introduction.
 
     Paramters:
@@ -479,7 +479,10 @@ def build_intro_pattern(genus, species=r'[a-z]+', subspecies=''):
     # if the subspecies was specified, we know there must be alphabetical
     # numbering on them
     if subspecies:
-        pattern += '[a-z]+'
+        pattern += r'[a-z]+'
+
+    if 'x\\' in species and '[a-z' not in species:
+        species = species.replace('x\\', 'x\\\\')
 
     # This will now match the 'n[a]*. Species name' part of the introduction
     pattern += r'\.[ ]*('+genus+') ('+species+')'
@@ -602,7 +605,7 @@ def locs_in(block):
         loc_text = loc_match[0]
 
     # find all states and provinces in the paragraph
-    locs = loc_pattern.findall(loc_text)
+    locs = loc_pattern.findall(re.sub('[Bb]aja\s*[Cc]alifornia', '', loc_text))
    
     # remove duplicates
     #locs = {key[loc] if loc in key else loc for loc in matches}
